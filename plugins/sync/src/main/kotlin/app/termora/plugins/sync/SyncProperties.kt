@@ -48,6 +48,8 @@ class SyncProperties private constructor(databaseManager: DatabaseManager) :
      */
     var token by StringPropertyDelegate(String())
 
+    var encryptionPassword by StringPropertyDelegate(String())
+
     /**
      * Gist ID
      */

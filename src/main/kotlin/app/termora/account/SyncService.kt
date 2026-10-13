@@ -1,10 +1,8 @@
 package app.termora.account
 
-import app.termora.AES
+import app.termora.SyncEncryption
 import app.termora.database.*
 import app.termora.database.Data.Companion.toData
-import org.apache.commons.codec.binary.Base64
-import org.apache.commons.codec.digest.DigestUtils
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.commons.lang3.StringUtils
 import org.jetbrains.exposed.v1.core.eq
@@ -77,10 +75,9 @@ abstract class SyncService {
     }
 
     protected fun encryptData(id: String, data: String, ownerId: String): String {
-        val iv = DigestUtils.sha256(id).copyOf(12)
         val secretKey = getSecretKey(ownerId)
         if (secretKey.isEmpty()) return StringUtils.EMPTY
-        return Base64.encodeBase64String(AES.GCM.encrypt(secretKey, iv, data.toByteArray()))
+        return SyncEncryption.encrypt(secretKey, data.toByteArray(Charsets.UTF_8), "$ownerId:$id")
     }
 
     protected fun getSecretKey(ownerId: String): ByteArray {
@@ -92,9 +89,8 @@ abstract class SyncService {
     }
 
     protected fun decryptData(id: String, data: String, ownerId: String): String {
-        val iv = DigestUtils.sha256(id).copyOf(12)
         val secretKey = getSecretKey(ownerId)
         if (secretKey.isEmpty()) throw IllegalStateException("根据 ownerId 无法获取对应密钥")
-        return String(AES.GCM.decrypt(secretKey, iv, Base64.decodeBase64(data)))
+        return SyncEncryption.decryptAccount(secretKey, data, id, ownerId).toString(Charsets.UTF_8)
     }
 }

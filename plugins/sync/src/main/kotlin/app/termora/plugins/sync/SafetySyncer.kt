@@ -2,7 +2,6 @@ package app.termora.plugins.sync
 
 import app.termora.*
 import app.termora.AES.CBC.aesCBCDecrypt
-import app.termora.AES.CBC.aesCBCEncrypt
 import app.termora.AES.decodeBase64
 import app.termora.AES.encodeBase64String
 import app.termora.Application.ohMyJson
@@ -52,7 +51,7 @@ abstract class SafetySyncer : Syncer {
 
     protected fun decodeHosts(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
         val encryptedHosts = ohMyJson.decodeFromString<List<EncryptedHost>>(text)
         val hosts = hostManager.hosts().associateBy { it.id }
 
@@ -71,29 +70,28 @@ abstract class SafetySyncer : Syncer {
                 val iv = getIv(encryptedHost.id)
                 val host = Host(
                     id = encryptedHost.id,
-                    name = encryptedHost.name.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    protocol = encryptedHost.protocol.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    host = encryptedHost.host.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    port = encryptedHost.port.decodeBase64().aesCBCDecrypt(key, iv)
-                        .decodeToString().toIntOrNull() ?: 0,
-                    username = encryptedHost.username.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    remark = encryptedHost.remark.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                    name = encryptedHost.name.decodeSyncText(key, iv, config),
+                    protocol = encryptedHost.protocol.decodeSyncText(key, iv, config),
+                    host = encryptedHost.host.decodeSyncText(key, iv, config),
+                    port = encryptedHost.port.decodeSyncText(key, iv, config).toIntOrNull() ?: 0,
+                    username = encryptedHost.username.decodeSyncText(key, iv, config),
+                    remark = encryptedHost.remark.decodeSyncText(key, iv, config),
                     authentication = ohMyJson.decodeFromString(
-                        encryptedHost.authentication.decodeBase64().aesCBCDecrypt(key, iv).decodeToString()
+                        encryptedHost.authentication.decodeSyncText(key, iv, config)
                     ),
                     proxy = ohMyJson.decodeFromString(
-                        encryptedHost.proxy.decodeBase64().aesCBCDecrypt(key, iv).decodeToString()
+                        encryptedHost.proxy.decodeSyncText(key, iv, config)
                     ),
                     options = ohMyJson.decodeFromString(
-                        encryptedHost.options.decodeBase64().aesCBCDecrypt(key, iv).decodeToString()
+                        encryptedHost.options.decodeSyncText(key, iv, config)
                     ),
                     tunnelings = ohMyJson.decodeFromString(
-                        encryptedHost.tunnelings.decodeBase64().aesCBCDecrypt(key, iv).decodeToString()
+                        encryptedHost.tunnelings.decodeSyncText(key, iv, config)
                     ),
                     sort = encryptedHost.sort,
-                    parentId = encryptedHost.parentId.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    ownerId = encryptedHost.ownerId.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    creatorId = encryptedHost.creatorId.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                    parentId = encryptedHost.parentId.decodeSyncText(key, iv, config),
+                    ownerId = encryptedHost.ownerId.decodeSyncText(key, iv, config),
+                    creatorId = encryptedHost.creatorId.decodeSyncText(key, iv, config),
                     ownerType = OwnerType.User.name,
                     createDate = encryptedHost.createDate,
                     updateDate = encryptedHost.updateDate,
@@ -103,6 +101,7 @@ abstract class SafetySyncer : Syncer {
                 if (log.isWarnEnabled) {
                     log.warn("Decode host: ${encryptedHost.id} failed. error: {}", e.message, e)
                 }
+                throw e
             }
         }
 
@@ -111,36 +110,30 @@ abstract class SafetySyncer : Syncer {
                 hostManager.removeHost(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode hosts: {}", text)
-        }
     }
 
-    protected fun encodeHosts(key: ByteArray): String {
+    protected fun encodeHosts(): String {
         val encryptedHosts = mutableListOf<EncryptedHost>()
         for (host in hostManager.hosts()) {
-            // aes iv
-            val iv = ArrayUtils.subarray(host.id.padEnd(16, '0').toByteArray(), 0, 16)
+
             val encryptedHost = EncryptedHost()
             encryptedHost.id = host.id
-            encryptedHost.name = host.name.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.protocol = host.protocol.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.host = host.host.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.port = "${host.port}".aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.username = host.username.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.remark = host.remark.aesCBCEncrypt(key, iv).encodeBase64String()
+            encryptedHost.name = host.name
+            encryptedHost.protocol = host.protocol
+            encryptedHost.host = host.host
+            encryptedHost.port = "${host.port}"
+            encryptedHost.username = host.username
+            encryptedHost.remark = host.remark
             encryptedHost.authentication = ohMyJson.encodeToString(host.authentication)
-                .aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.proxy = ohMyJson.encodeToString(host.proxy).aesCBCEncrypt(key, iv).encodeBase64String()
+            encryptedHost.proxy = ohMyJson.encodeToString(host.proxy)
             encryptedHost.options =
-                ohMyJson.encodeToString(host.options).aesCBCEncrypt(key, iv).encodeBase64String()
+                ohMyJson.encodeToString(host.options)
             encryptedHost.tunnelings =
-                ohMyJson.encodeToString(host.tunnelings).aesCBCEncrypt(key, iv).encodeBase64String()
+                ohMyJson.encodeToString(host.tunnelings)
             encryptedHost.sort = host.sort
-            encryptedHost.parentId = host.parentId.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.ownerId = host.ownerId.aesCBCEncrypt(key, iv).encodeBase64String()
-            encryptedHost.creatorId = host.creatorId.aesCBCEncrypt(key, iv).encodeBase64String()
+            encryptedHost.parentId = host.parentId
+            encryptedHost.ownerId = host.ownerId
+            encryptedHost.creatorId = host.creatorId
             encryptedHost.createDate = host.createDate
             encryptedHost.updateDate = host.updateDate
             encryptedHosts.add(encryptedHost)
@@ -163,7 +156,7 @@ abstract class SafetySyncer : Syncer {
 
     protected fun decodeSnippets(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
         val encryptedSnippets = ohMyJson.decodeFromString<List<Snippet>>(text)
         val snippets = snippetManager.snippets().associateBy { it.id }
 
@@ -181,15 +174,16 @@ abstract class SafetySyncer : Syncer {
                 // aes iv
                 val iv = getIv(encryptedSnippet.id)
                 val snippet = encryptedSnippet.copy(
-                    name = encryptedSnippet.name.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    parentId = encryptedSnippet.parentId.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    snippet = encryptedSnippet.snippet.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                    name = encryptedSnippet.name.decodeSyncText(key, iv, config),
+                    parentId = encryptedSnippet.parentId.decodeSyncText(key, iv, config),
+                    snippet = encryptedSnippet.snippet.decodeSyncText(key, iv, config),
                 )
                 SwingUtilities.invokeLater { snippetManager.addSnippet(snippet) }
             } catch (e: Exception) {
                 if (log.isWarnEnabled) {
                     log.warn("Decode snippet: ${encryptedSnippet.id} failed. error: {}", e.message, e)
                 }
+                throw e
             }
         }
 
@@ -198,32 +192,15 @@ abstract class SafetySyncer : Syncer {
                 snippetManager.removeSnippet(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode Snippets: {}", text)
-        }
     }
 
-    protected fun encodeSnippets(key: ByteArray): String {
-        val snippets = mutableListOf<Snippet>()
-        for (snippet in snippetManager.snippets()) {
-            // aes iv
-            val iv = ArrayUtils.subarray(snippet.id.padEnd(16, '0').toByteArray(), 0, 16)
-            snippets.add(
-                snippet.copy(
-                    name = snippet.name.aesCBCEncrypt(key, iv).encodeBase64String(),
-                    snippet = snippet.snippet.aesCBCEncrypt(key, iv).encodeBase64String(),
-                    parentId = snippet.parentId.aesCBCEncrypt(key, iv).encodeBase64String(),
-                )
-            )
-        }
-        return ohMyJson.encodeToString(snippets)
-
+    protected fun encodeSnippets(): String {
+        return ohMyJson.encodeToString(snippetManager.snippets())
     }
 
     protected fun decodeKeys(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
         val encryptedKeys = ohMyJson.decodeFromString<List<OhKeyPair>>(text)
         val keys = keyManager.getOhKeyPairs().associateBy { it.id }
 
@@ -240,19 +217,21 @@ abstract class SafetySyncer : Syncer {
                 val iv = getIv(encryptedKey.id)
                 val keyPair = OhKeyPair(
                     id = encryptedKey.id,
-                    publicKey = encryptedKey.publicKey.decodeBase64().aesCBCDecrypt(key, iv).encodeBase64String(),
-                    privateKey = encryptedKey.privateKey.decodeBase64().aesCBCDecrypt(key, iv).encodeBase64String(),
-                    type = encryptedKey.type.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    name = encryptedKey.name.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                    remark = encryptedKey.remark.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                    publicKey = encryptedKey.publicKey.decodeSyncKey(key, iv, config),
+                    privateKey = encryptedKey.privateKey.decodeSyncKey(key, iv, config),
+                    type = encryptedKey.type.decodeSyncText(key, iv, config),
+                    name = encryptedKey.name.decodeSyncText(key, iv, config),
+                    remark = encryptedKey.remark.decodeSyncText(key, iv, config),
                     length = encryptedKey.length,
-                    sort = encryptedKey.sort
+                    sort = encryptedKey.sort,
+                    updateDate = encryptedKey.updateDate,
                 )
                 SwingUtilities.invokeLater { keyManager.addOhKeyPair(keyPair, accountOwner) }
             } catch (e: Exception) {
                 if (log.isWarnEnabled) {
                     log.warn("Decode key: ${encryptedKey.id} failed. error: {}", e.message, e)
                 }
+                throw e
             }
         }
 
@@ -261,35 +240,15 @@ abstract class SafetySyncer : Syncer {
                 keyManager.removeOhKeyPair(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode keys: {}", text)
-        }
     }
 
-    protected fun encodeKeys(key: ByteArray): String {
-        val encryptedKeys = mutableListOf<OhKeyPair>()
-        for (keyPair in keyManager.getOhKeyPairs()) {
-            // aes iv
-            val iv = ArrayUtils.subarray(keyPair.id.padEnd(16, '0').toByteArray(), 0, 16)
-            val encryptedKeyPair = OhKeyPair(
-                id = keyPair.id,
-                publicKey = keyPair.publicKey.decodeBase64().aesCBCEncrypt(key, iv).encodeBase64String(),
-                privateKey = keyPair.privateKey.decodeBase64().aesCBCEncrypt(key, iv).encodeBase64String(),
-                type = keyPair.type.aesCBCEncrypt(key, iv).encodeBase64String(),
-                name = keyPair.name.aesCBCEncrypt(key, iv).encodeBase64String(),
-                remark = keyPair.remark.aesCBCEncrypt(key, iv).encodeBase64String(),
-                length = keyPair.length,
-                sort = keyPair.sort
-            )
-            encryptedKeys.add(encryptedKeyPair)
-        }
-        return ohMyJson.encodeToString(encryptedKeys)
+    protected fun encodeKeys(): String {
+        return ohMyJson.encodeToString(keyManager.getOhKeyPairs())
     }
 
     protected fun decodeKeywordHighlights(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
         val encryptedKeywordHighlights = ohMyJson.decodeFromString<List<KeywordHighlight>>(text)
         val keywordHighlights = keywordHighlightManager.getKeywordHighlights().associateBy { it.id }
 
@@ -306,14 +265,15 @@ abstract class SafetySyncer : Syncer {
                 val iv = getIv(e.id)
                 keywordHighlightManager.addKeywordHighlight(
                     e.copy(
-                        keyword = e.keyword.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                        description = e.description.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                        keyword = e.keyword.decodeSyncText(key, iv, config),
+                        description = e.description.decodeSyncText(key, iv, config),
                     ), accountOwner
                 )
             } catch (ex: Exception) {
                 if (log.isWarnEnabled) {
                     log.warn("Decode KeywordHighlight: ${e.id} failed. error: {}", ex.message, ex)
                 }
+                throw ex
             }
         }
 
@@ -322,33 +282,22 @@ abstract class SafetySyncer : Syncer {
                 keywordHighlightManager.removeKeywordHighlight(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode KeywordHighlight: {}", text)
-        }
     }
 
-    protected fun encodeKeywordHighlights(key: ByteArray): String {
-        val keywordHighlights = mutableListOf<KeywordHighlight>()
-        for (ownerId in accountManager.getOwnerIds()) {
-            for (keywordHighlight in keywordHighlightManager.getKeywordHighlights(ownerId)) {
-                // aes iv
-                val iv = getIv(keywordHighlight.id)
-                val encryptedKeyPair = keywordHighlight.copy(
-                    keyword = keywordHighlight.keyword.aesCBCEncrypt(key, iv).encodeBase64String(),
-                    description = keywordHighlight.description.aesCBCEncrypt(key, iv).encodeBase64String(),
-                )
-                keywordHighlights.add(encryptedKeyPair)
-            }
-        }
-        return ohMyJson.encodeToString(keywordHighlights)
+    protected fun encodeKeywordHighlights(): String {
+        return ohMyJson.encodeToString(accountManager.getOwnerIds().flatMap { keywordHighlightManager.getKeywordHighlights(it) })
     }
 
 
     protected fun decodeTags(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
-        val encryptedTags = runCatching { ohMyJson.decodeFromString<List<Tag>>(text) }.getOrNull() ?: emptyList()
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
+        // Older Git sync versions accidentally wrote Hosts into the Tags file.
+        val encryptedTags = if (config.legacyFormat) {
+            runCatching { ohMyJson.decodeFromString<List<Tag>>(text) }.getOrDefault(emptyList())
+        } else {
+            ohMyJson.decodeFromString<List<Tag>>(text)
+        }
         val tags = accountManager.getOwnerIds().map { tagManager.getTags(it) }
             .flatten().associateBy { it.id }
 
@@ -366,13 +315,14 @@ abstract class SafetySyncer : Syncer {
 
                 tagManager.addTag(
                     e.copy(
-                        text = e.text.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                        text = e.text.decodeSyncText(key, iv, config),
                     ), accountOwner
                 )
             } catch (ex: Exception) {
                 if (log.isWarnEnabled) {
                     log.warn("Decode Tag: ${e.id} failed. error: {}", ex.message, ex)
                 }
+                throw ex
             }
         }
 
@@ -381,28 +331,15 @@ abstract class SafetySyncer : Syncer {
                 tagManager.removeTag(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode Tag: {}", text)
-        }
     }
 
-    protected fun encodeTags(key: ByteArray): String {
-        val tags = mutableListOf<Tag>()
-        for (ownerId in accountManager.getOwnerIds()) {
-            for (tag in tagManager.getTags(ownerId)) {
-                // aes iv
-                val iv = getIv(tag.id)
-                val encryptedKeyPair = tag.copy(text = tag.text.aesCBCEncrypt(key, iv).encodeBase64String())
-                tags.add(encryptedKeyPair)
-            }
-        }
-        return ohMyJson.encodeToString(tags)
+    protected fun encodeTags(): String {
+        return ohMyJson.encodeToString(accountManager.getOwnerIds().flatMap { tagManager.getTags(it) })
     }
 
     protected fun decodeMacros(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
         // aes key
-        val key = getKey(config)
+        val key = if (config.legacyFormat) getLegacyKey(config) else byteArrayOf()
         val encryptedMacros = ohMyJson.decodeFromString<List<Macro>>(text)
         val macros = macroManager.getMacros().associateBy { it.id }
         for (e in encryptedMacros) {
@@ -418,14 +355,15 @@ abstract class SafetySyncer : Syncer {
                 val iv = getIv(e.id)
                 macroManager.addMacro(
                     e.copy(
-                        name = e.name.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
-                        macro = e.macro.decodeBase64().aesCBCDecrypt(key, iv).decodeToString(),
+                        name = e.name.decodeSyncText(key, iv, config),
+                        macro = e.macro.decodeSyncText(key, iv, config),
                     )
                 )
             } catch (ex: Exception) {
                 if (log.isWarnEnabled) {
                     log.warn("Decode Macro: ${e.id} failed. error: {}", ex.message, ex)
                 }
+                throw ex
             }
         }
 
@@ -434,24 +372,10 @@ abstract class SafetySyncer : Syncer {
                 macroManager.removeMacro(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode Macros: {}", text)
-        }
     }
 
-    protected fun encodeMacros(key: ByteArray): String {
-        val macros = mutableListOf<Macro>()
-        for (macro in macroManager.getMacros()) {
-            val iv = getIv(macro.id)
-            macros.add(
-                macro.copy(
-                    name = macro.name.aesCBCEncrypt(key, iv).encodeBase64String(),
-                    macro = macro.macro.aesCBCEncrypt(key, iv).encodeBase64String()
-                )
-            )
-        }
-        return ohMyJson.encodeToString(macros)
+    protected fun encodeMacros(): String {
+        return ohMyJson.encodeToString(macroManager.getMacros())
     }
 
     protected fun decodeKeymaps(text: String, deletedData: List<DeletedData>, config: SyncConfig) {
@@ -473,10 +397,6 @@ abstract class SafetySyncer : Syncer {
                 keymapManager.removeKeymap(it.id)
             }
         }
-
-        if (log.isDebugEnabled) {
-            log.debug("Decode Keymaps: {}", text)
-        }
     }
 
     protected fun encodeKeymaps(): String {
@@ -492,8 +412,16 @@ abstract class SafetySyncer : Syncer {
         return ohMyJson.encodeToString(keymaps)
     }
 
-    protected open fun getKey(config: SyncConfig): ByteArray {
+    protected open fun getLegacyKey(config: SyncConfig): ByteArray {
         return ArrayUtils.subarray(config.token.padEnd(16, '0').toByteArray(), 0, 16)
+    }
+
+    private fun String.decodeSyncText(key: ByteArray, iv: ByteArray, config: SyncConfig): String {
+        return if (config.legacyFormat) decodeBase64().aesCBCDecrypt(key, iv).decodeToString() else this
+    }
+
+    private fun String.decodeSyncKey(key: ByteArray, iv: ByteArray, config: SyncConfig): String {
+        return if (config.legacyFormat) decodeBase64().aesCBCDecrypt(key, iv).encodeBase64String() else this
     }
 
     protected fun getIv(id: String): ByteArray {

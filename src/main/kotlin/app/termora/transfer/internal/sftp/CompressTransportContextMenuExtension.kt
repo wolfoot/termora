@@ -1,6 +1,7 @@
 package app.termora.transfer.internal.sftp
 
 import app.termora.I18n
+import app.termora.ShellArguments
 import app.termora.actions.AnAction
 import app.termora.actions.AnActionEvent
 import app.termora.randomUUID
@@ -90,9 +91,9 @@ internal class CompressTransportContextMenuExtension private constructor() : Tra
         override suspend fun transfer(bufferSize: Int): Long {
             if (end) return 0
 
-            val paths = files.joinToString(StringUtils.SPACE) { "'${it.second.name}'" }
+            val paths = files.joinToString(StringUtils.SPACE) { ShellArguments.quote("./${it.second.name}") }
             val command = StringBuilder()
-            command.append("cd '${workdir.absolutePathString()}'")
+            command.append("cd ${ShellArguments.quote(workdir.absolutePathString())}")
             command.append(" && ")
             if (mode == CompressMode.TarGz) {
                 command.append("tar -czf")
@@ -103,7 +104,7 @@ internal class CompressTransportContextMenuExtension private constructor() : Tra
             } else if (mode == CompressMode.SevenZ) {
                 command.append("7z a")
             }
-            command.append(" '${target.name}' ")
+            command.append(" ${ShellArguments.quote("./${target.name}")} ")
             command.append(paths)
 
             fileSystem.clientSession.executeRemoteCommand(command.toString(), System.out, Charsets.UTF_8)

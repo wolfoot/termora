@@ -3,11 +3,12 @@ plugins {
 }
 
 
-project.version = "0.0.4"
+project.version = "0.0.6"
 
 
 dependencies {
     testImplementation(kotlin("test"))
+    testImplementation(project(":"))
     compileOnly(project(":"))
 }
 

@@ -5,6 +5,7 @@ import app.termora.ApplicationScope
 import app.termora.DeletedData
 import app.termora.ResponseException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -40,52 +41,55 @@ class WebDAVSyncer private constructor() : SafetySyncer() {
         val text = response.use { resp -> resp.body?.use { it.string() } }
             ?: throw ResponseException(response.code, response)
 
-        val json = ohMyJson.decodeFromString<JsonObject>(text)
+        val rawJson = ohMyJson.decodeFromString<JsonObject>(text)
+        val files = SyncFileCodec.decode(rawJson.map { GistFile(it.key, it.value.jsonPrimitive.content) }, config)
+        val json = JsonObject(files.associate { it.filename to JsonPrimitive(it.content) })
+        fun configFor(filename: String) = config.copy(legacyFormat = files.first { it.filename == filename }.legacy)
         val deletedData = mutableListOf<DeletedData>()
         json["DeletedData"]?.jsonPrimitive?.content?.let { deletedData.addAll(decodeDeletedData(it, config)) }
 
         // decode hosts
         if (config.ranges.contains(SyncRange.Hosts)) {
             json["Tags"]?.jsonPrimitive?.content?.let {
-                decodeTags(it, deletedData.filter { e -> e.type == "Tags" }, config)
+                decodeTags(it, deletedData.filter { e -> e.type == "Tag" }, configFor("Tags"))
             }
             json["Hosts"]?.jsonPrimitive?.content?.let {
-                decodeHosts(it, deletedData.filter { e -> e.type == "Host" }, config)
+                decodeHosts(it, deletedData.filter { e -> e.type == "Host" }, configFor("Hosts"))
             }
         }
 
         // decode KeyPairs
         if (config.ranges.contains(SyncRange.KeyPairs)) {
             json["KeyPairs"]?.jsonPrimitive?.content?.let {
-                decodeKeys(it, deletedData.filter { e -> e.type == "KeyPair" }, config)
+                decodeKeys(it, deletedData.filter { e -> e.type == "KeyPair" }, configFor("KeyPairs"))
             }
         }
 
         // decode Highlights
         if (config.ranges.contains(SyncRange.KeywordHighlights)) {
             json["KeywordHighlights"]?.jsonPrimitive?.content?.let {
-                decodeKeywordHighlights(it, deletedData.filter { e -> e.type == "KeywordHighlight" }, config)
+                decodeKeywordHighlights(it, deletedData.filter { e -> e.type == "KeywordHighlight" }, configFor("KeywordHighlights"))
             }
         }
 
         // decode Macros
         if (config.ranges.contains(SyncRange.Macros)) {
             json["Macros"]?.jsonPrimitive?.content?.let {
-                decodeMacros(it, deletedData.filter { e -> e.type == "Macro" }, config)
+                decodeMacros(it, deletedData.filter { e -> e.type == "Macro" }, configFor("Macros"))
             }
         }
 
         // decode Keymaps
         if (config.ranges.contains(SyncRange.Keymap)) {
             json["Keymaps"]?.jsonPrimitive?.content?.let {
-                decodeKeymaps(it, deletedData.filter { e -> e.type == "Keymap" }, config)
+                decodeKeymaps(it, deletedData.filter { e -> e.type == "Keymap" }, configFor("Keymaps"))
             }
         }
 
         // decode Snippets
         if (config.ranges.contains(SyncRange.Snippets)) {
             json["Snippets"]?.jsonPrimitive?.content?.let {
-                decodeSnippets(it, deletedData.filter { e -> e.type == "Snippet" }, config)
+                decodeSnippets(it, deletedData.filter { e -> e.type == "Snippet" }, configFor("Snippets"))
             }
         }
 
@@ -93,81 +97,57 @@ class WebDAVSyncer private constructor() : SafetySyncer() {
     }
 
     override fun push(config: SyncConfig): GistResponse {
-        ensureFileExists(config)
-        // aes key
-        val key = getKey(config)
         val json = buildJsonObject {
             // Hosts
             if (config.ranges.contains(SyncRange.Hosts)) {
-                val hostsContent = encodeHosts(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push encryptedHosts: {}", hostsContent)
-                }
+                val hostsContent = encodeHosts()
                 put("Hosts", hostsContent)
 
-                val tagsContent = encodeTags(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push encryptedTags: {}", tagsContent)
-                }
+                val tagsContent = encodeTags()
                 put("Tags", tagsContent)
             }
 
             // Snippets
             if (config.ranges.contains(SyncRange.Snippets)) {
-                val snippetsContent = encodeSnippets(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push encryptedSnippets: {}", snippetsContent)
-                }
+                val snippetsContent = encodeSnippets()
                 put("Snippets", snippetsContent)
             }
 
             // KeyPairs
             if (config.ranges.contains(SyncRange.KeyPairs)) {
-                val keysContent = encodeKeys(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push encryptedKeys: {}", keysContent)
-                }
+                val keysContent = encodeKeys()
                 put("KeyPairs", keysContent)
             }
 
             // Highlights
             if (config.ranges.contains(SyncRange.KeywordHighlights)) {
-                val keywordHighlightsContent = encodeKeywordHighlights(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push keywordHighlights: {}", keywordHighlightsContent)
-                }
+                val keywordHighlightsContent = encodeKeywordHighlights()
                 put("KeywordHighlights", keywordHighlightsContent)
             }
 
             // Macros
             if (config.ranges.contains(SyncRange.Macros)) {
-                val macrosContent = encodeMacros(key)
-                if (log.isDebugEnabled) {
-                    log.debug("Push macros: {}", macrosContent)
-                }
+                val macrosContent = encodeMacros()
                 put("Macros", macrosContent)
             }
 
             // Keymap
             if (config.ranges.contains(SyncRange.Keymap)) {
                 val keymapsContent = encodeKeymaps()
-                if (log.isDebugEnabled) {
-                    log.debug("Push keymaps: {}", keymapsContent)
-                }
                 put("Keymaps", keymapsContent)
             }
 
             // deletedData
             val deletedData = encodeDeletedData(config)
-            if (log.isDebugEnabled) {
-                log.debug("Push DeletedData: {}", deletedData)
-            }
             put("DeletedData", deletedData)
         }
 
+        val files = SyncFileCodec.encode(json.map { GistFile(it.key, it.value.jsonPrimitive.content) }, config)
+        val encryptedJson = JsonObject(files.associate { it.filename to JsonPrimitive(it.content) })
+        ensureFileExists(config)
         val response = httpClient.newCall(
             newRequestBuilder(config).put(
-                ohMyJson.encodeToString(json)
+                ohMyJson.encodeToString(encryptedJson)
                     .toRequestBody("application/json".toMediaType())
             ).build()
         ).execute()
@@ -188,7 +168,7 @@ class WebDAVSyncer private constructor() : SafetySyncer() {
         return config.options["domain"] ?: throw IllegalStateException("domain is not defined")
     }
 
-    override fun getKey(config: SyncConfig): ByteArray {
+    override fun getLegacyKey(config: SyncConfig): ByteArray {
         return PBKDF2.generateSecret(
             config.gistId.toCharArray(),
             config.token.toByteArray(),

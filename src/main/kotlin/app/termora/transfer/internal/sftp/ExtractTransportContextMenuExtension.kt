@@ -1,6 +1,7 @@
 package app.termora.transfer.internal.sftp
 
 import app.termora.I18n
+import app.termora.ShellArguments
 import app.termora.actions.AnAction
 import app.termora.actions.AnActionEvent
 import app.termora.randomUUID
@@ -110,11 +111,11 @@ internal class ExtractTransportContextMenuExtension private constructor() : Tran
             if (end) return 0
 
             val command = StringBuilder()
-            command.append("cd '${workdir.absolutePathString()}'")
+            command.append("cd ${ShellArguments.quote(workdir.absolutePathString())}")
             command.append(" && ")
 
             if (mode == CompressMode.TarGz || mode == CompressMode.Tar) {
-                command.append(" mkdir -p '${target.absolutePathString()}' ")
+                command.append(" mkdir -p -- ${ShellArguments.quote(target.absolutePathString())} ")
                 command.append(" && ")
 
                 command.append(" tar ")
@@ -124,16 +125,16 @@ internal class ExtractTransportContextMenuExtension private constructor() : Tran
                     command.append(" -zxf ")
                 }
 
-                command.append(" '${source().absolutePathString()}' ")
-                command.append(" -C '${target.absolutePathString()}' ")
+                command.append(" ${ShellArguments.quote(source().absolutePathString())} ")
+                command.append(" -C ${ShellArguments.quote(target.absolutePathString())} ")
             } else if (mode == CompressMode.Zip) {
                 command.append(" unzip -o -q ")
-                command.append(" '${source().absolutePathString()}' ")
-                command.append(" -d '${target.absolutePathString()}' ")
+                command.append(" ${ShellArguments.quote(source().absolutePathString())} ")
+                command.append(" -d ${ShellArguments.quote(target.absolutePathString())} ")
             } else if (mode == CompressMode.SevenZ) {
                 command.append(" 7z x ")
-                command.append(" '${source().absolutePathString()}' ")
-                command.append(" -o'${target.absolutePathString()}' -y > /dev/null")
+                command.append(" ${ShellArguments.quote(source().absolutePathString())} ")
+                command.append(" -o${ShellArguments.quote(target.absolutePathString())} -y > /dev/null")
             }
 
             fileSystem.clientSession.executeRemoteCommand(command.toString(), System.out, Charsets.UTF_8)

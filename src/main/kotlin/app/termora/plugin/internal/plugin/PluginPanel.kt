@@ -3,6 +3,7 @@ package app.termora.plugin.internal.plugin
 import app.termora.*
 import app.termora.plugin.ExtensionManager
 import app.termora.plugin.PluginManager
+import app.termora.plugin.PluginFiles
 import app.termora.plugin.PluginOrigin
 import app.termora.plugin.PluginUninstallExtension
 import kotlinx.coroutines.Dispatchers
@@ -20,8 +21,6 @@ import org.apache.commons.net.io.Util
 import org.jdesktop.swingx.JXLabel
 import org.slf4j.LoggerFactory
 import java.awt.Dimension
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
 import javax.swing.*
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.round
@@ -359,32 +358,21 @@ class PluginPanel(val descriptor: PluginPluginDescriptor) : JPanel(), Disposable
         }
 
 
-        var pluginDirectory = FileUtils.getFile(PluginManager.getInstance().getPluginDirectory(), descriptor.id)
-        if (updated) {
-            pluginDirectory = FileUtils.getFile(pluginDirectory, "updated")
-        }
-        if (pluginDirectory.exists()) {
-            FileUtils.deleteQuietly(pluginDirectory)
-        }
-        FileUtils.forceMkdir(pluginDirectory)
-
-
-        tempFile.inputStream().use { input ->
-            ZipInputStream(input).use { zis ->
-                var zipEntry: ZipEntry? = zis.getNextEntry()
-                while (zipEntry != null) {
-                    val file = FileUtils.getFile(pluginDirectory, zipEntry.name)
-                    if (zipEntry.isDirectory) {
-                        FileUtils.forceMkdir(file)
-                    } else {
-                        file.outputStream().use { output -> zis.copyTo(output) }
-                    }
-                    zipEntry = zis.getNextEntry()
-                }
+        val staging = Application.createSubTemporaryDir("plugin").toFile()
+        try {
+            tempFile.inputStream().use { PluginFiles.extract(it, staging.toPath()) }
+            var pluginDirectory = PluginFiles.directory(
+                PluginManager.getInstance().getPluginDirectory().toPath(), descriptor.id
+            ).toFile()
+            if (updated) {
+                pluginDirectory = PluginFiles.directory(pluginDirectory.toPath(), "updated").toFile()
             }
+            if (pluginDirectory.exists()) FileUtils.deleteDirectory(pluginDirectory)
+            FileUtils.moveDirectory(staging, pluginDirectory)
+        } finally {
+            FileUtils.deleteQuietly(staging)
+            FileUtils.deleteQuietly(tempFile)
         }
-
-        FileUtils.deleteQuietly(tempFile)
 
     }
 

@@ -55,6 +55,8 @@ internal object PluginXmlParser {
             )
         ) throw IllegalStateException("illegal plugin")
 
+        PluginFiles.validateId(pluginId)
+
         // 版本要求不匹配
         if (version.satisfies(since).not()) throw IllegalStateException("version mismatch")
         if (until.isNullOrBlank().not() && version.satisfies(until)

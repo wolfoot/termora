@@ -8,7 +8,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import okhttp3.Response
 import org.apache.commons.io.IOUtils
-import org.apache.commons.lang3.ArrayUtils
 import org.slf4j.LoggerFactory
 
 abstract class GitSyncer : SafetySyncer() {
@@ -28,7 +27,8 @@ abstract class GitSyncer : SafetySyncer() {
             throw ResponseException(response.code, response)
         }
 
-        val gistResponse = parsePullResponse(response, config)
+        val rawResponse = parsePullResponse(response, config)
+        val gistResponse = rawResponse.copy(gists = SyncFileCodec.decode(rawResponse.gists, config))
         val deletedData = mutableListOf<DeletedData>()
 
         // DeletedData
@@ -38,45 +38,45 @@ abstract class GitSyncer : SafetySyncer() {
         // decode hosts
         if (config.ranges.contains(SyncRange.Hosts)) {
             gistResponse.gists.findLast { it.filename == "Tags" }?.let {
-                decodeTags(it.content, deletedData.filter { e -> e.type == "Tag" }, config)
+                decodeTags(it.content, deletedData.filter { e -> e.type == "Tag" }, config.copy(legacyFormat = it.legacy))
             }
             gistResponse.gists.findLast { it.filename == "Hosts" }?.let {
-                decodeHosts(it.content, deletedData.filter { e -> e.type == "Host" }, config)
+                decodeHosts(it.content, deletedData.filter { e -> e.type == "Host" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
         // decode keys
         if (config.ranges.contains(SyncRange.KeyPairs)) {
             gistResponse.gists.findLast { it.filename == "KeyPairs" }?.let {
-                decodeKeys(it.content, deletedData.filter { e -> e.type == "KeyPair" }, config)
+                decodeKeys(it.content, deletedData.filter { e -> e.type == "KeyPair" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
         // decode keyword highlights
         if (config.ranges.contains(SyncRange.KeywordHighlights)) {
             gistResponse.gists.findLast { it.filename == "KeywordHighlights" }?.let {
-                decodeKeywordHighlights(it.content, deletedData.filter { e -> e.type == "KeywordHighlight" }, config)
+                decodeKeywordHighlights(it.content, deletedData.filter { e -> e.type == "KeywordHighlight" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
         // decode macros
         if (config.ranges.contains(SyncRange.Macros)) {
             gistResponse.gists.findLast { it.filename == "Macros" }?.let {
-                decodeMacros(it.content, deletedData.filter { e -> e.type == "Macro" }, config)
+                decodeMacros(it.content, deletedData.filter { e -> e.type == "Macro" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
         // decode keymaps
-        if (config.ranges.contains(SyncRange.Macros)) {
+        if (config.ranges.contains(SyncRange.Keymap)) {
             gistResponse.gists.findLast { it.filename == "Keymaps" }?.let {
-                decodeKeymaps(it.content, deletedData.filter { e -> e.type == "Keymap" }, config)
+                decodeKeymaps(it.content, deletedData.filter { e -> e.type == "Keymap" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
         // decode Snippets
         if (config.ranges.contains(SyncRange.Snippets)) {
             gistResponse.gists.findLast { it.filename == "Snippets" }?.let {
-                decodeSnippets(it.content, deletedData.filter { e -> e.type == "Snippet" }, config)
+                decodeSnippets(it.content, deletedData.filter { e -> e.type == "Snippet" }, config.copy(legacyFormat = it.legacy))
             }
         }
 
@@ -96,67 +96,44 @@ abstract class GitSyncer : SafetySyncer() {
         }
 
         val gistFiles = mutableListOf<GistFile>()
-        // aes key
-        val key = ArrayUtils.subarray(config.token.padEnd(16, '0').toByteArray(), 0, 16)
 
         // Hosts
         if (config.ranges.contains(SyncRange.Hosts)) {
-            val hostsContent = encodeHosts(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push encryptedHosts: {}", hostsContent)
-            }
+            val hostsContent = encodeHosts()
             gistFiles.add(GistFile("Hosts", hostsContent))
 
-            val tagsContent = encodeHosts(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push encryptedTags: {}", tagsContent)
-            }
+            val tagsContent = encodeTags()
             gistFiles.add(GistFile("Tags", tagsContent))
         }
 
 
         // Snippets
         if (config.ranges.contains(SyncRange.Snippets)) {
-            val snippetsContent = encodeSnippets(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push encryptedSnippets: {}", snippetsContent)
-            }
+            val snippetsContent = encodeSnippets()
             gistFiles.add(GistFile("Snippets", snippetsContent))
         }
 
         // KeyPairs
         if (config.ranges.contains(SyncRange.KeyPairs)) {
-            val keysContent = encodeKeys(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push encryptedKeys: {}", keysContent)
-            }
+            val keysContent = encodeKeys()
             gistFiles.add(GistFile("KeyPairs", keysContent))
         }
 
         // Highlights
         if (config.ranges.contains(SyncRange.KeywordHighlights)) {
-            val keywordHighlightsContent = encodeKeywordHighlights(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push keywordHighlights: {}", keywordHighlightsContent)
-            }
+            val keywordHighlightsContent = encodeKeywordHighlights()
             gistFiles.add(GistFile("KeywordHighlights", keywordHighlightsContent))
         }
 
         // Macros
         if (config.ranges.contains(SyncRange.Macros)) {
-            val macrosContent = encodeMacros(key)
-            if (log.isDebugEnabled) {
-                log.debug("Push macros: {}", macrosContent)
-            }
+            val macrosContent = encodeMacros()
             gistFiles.add(GistFile("Macros", macrosContent))
         }
 
         // Keymap
         if (config.ranges.contains(SyncRange.Keymap)) {
             val keymapsContent = encodeKeymaps()
-            if (log.isDebugEnabled) {
-                log.debug("Push keymaps: {}", keymapsContent)
-            }
             gistFiles.add(GistFile("Keymaps", keymapsContent))
         }
 
@@ -165,12 +142,9 @@ abstract class GitSyncer : SafetySyncer() {
         }
 
         val deletedData = encodeDeletedData(config)
-        if (log.isDebugEnabled) {
-            log.debug("Push DeletedData: {}", deletedData)
-        }
         gistFiles.add(GistFile("DeletedData", deletedData))
 
-        val request = newPushRequestBuilder(gistFiles, config).build()
+        val request = newPushRequestBuilder(SyncFileCodec.encode(gistFiles, config), config).build()
 
         try {
             return parsePushResponse(httpClient.newCall(request).execute(), config)

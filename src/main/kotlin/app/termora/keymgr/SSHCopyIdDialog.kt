@@ -149,7 +149,11 @@ class SSHCopyIdDialog(
                     client.userInteraction = TerminalUserInteraction(owner)
                     val session = SshClients.openSession(host, client).apply { mySession = this }
                     val channel =
-                        session.createExecChannel("mkdir -p ~/.ssh && grep -qxF \"$publicKey\" ~/.ssh/authorized_keys || echo \"$publicKey\" >> ~/.ssh/authorized_keys")
+                        session.createExecChannel(
+                            "mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && " +
+                                "(grep -qxF -- ${ShellArguments.quote(publicKey)} ~/.ssh/authorized_keys || " +
+                                "printf '%s\\n' ${ShellArguments.quote(publicKey)} >> ~/.ssh/authorized_keys)"
+                        )
                     val baos = ByteArrayOutputStream()
                     channel.out = baos
                     if (channel.open().verify(timeout).await(timeout)) {

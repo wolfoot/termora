@@ -392,7 +392,7 @@ internal class DefaultInternalTransferManager(
                     source as SftpPath,
                     isDirectory,
                     if (isDirectory) 1 else Files.size(source),
-                    "rm -rf ${source.absolutePathString()}",
+                    "rm -rf -- ${ShellArguments.quote(source.absolutePathString())}",
                 )
             }
             mode == TransferMode.ChangePermission -> {

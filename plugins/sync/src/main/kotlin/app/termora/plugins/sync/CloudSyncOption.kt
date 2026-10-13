@@ -57,6 +57,8 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
 
     val typeComboBox = FlatComboBox<SyncType>()
     val tokenTextField = OutlinePasswordField(255)
+    val encryptionPasswordTextField = OutlinePasswordField(255)
+    val legacyImportCheckBox = JCheckBox(SyncI18n.getString("termora.settings.sync.legacy-import"))
     val gistTextField = OutlineTextField(255)
     val policyComboBox = JComboBox<SyncPolicy>()
     val domainTextField = object : OutlineTextField(255) {
@@ -151,6 +153,12 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
             }
         })
 
+        encryptionPasswordTextField.document.addDocumentListener(object : DocumentAdaptor() {
+            override fun changedUpdate(e: DocumentEvent) {
+                sync.encryptionPassword = String(encryptionPasswordTextField.password)
+            }
+        })
+
         domainTextField.document.addDocumentListener(object : DocumentAdaptor() {
             override fun changedUpdate(e: DocumentEvent) {
                 sync.domain = domainTextField.text
@@ -204,6 +212,8 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
         keysCheckBox.addActionListener { refreshButtons() }
         hostsCheckBox.addActionListener { refreshButtons() }
         snippetsCheckBox.addActionListener { refreshButtons() }
+        macrosCheckBox.addActionListener { refreshButtons() }
+        keymapCheckBox.addActionListener { refreshButtons() }
         keywordHighlightsCheckBox.addActionListener { refreshButtons() }
 
     }
@@ -236,10 +246,13 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
         sync.rangeKeyPairs = keysCheckBox.isSelected
         sync.rangeHosts = hostsCheckBox.isSelected
         sync.rangeSnippets = snippetsCheckBox.isSelected
+        sync.rangeMacros = macrosCheckBox.isSelected
+        sync.rangeKeymap = keymapCheckBox.isSelected
         sync.rangeKeywordHighlights = keywordHighlightsCheckBox.isSelected
 
         syncConfigButton.isEnabled = keysCheckBox.isSelected || hostsCheckBox.isSelected
-                || keywordHighlightsCheckBox.isSelected
+                || keywordHighlightsCheckBox.isSelected || snippetsCheckBox.isSelected
+                || macrosCheckBox.isSelected || keymapCheckBox.isSelected
     }
 
     private fun getSyncConfig(): SyncConfig {
@@ -267,7 +280,9 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
             token = String(tokenTextField.password),
             gistId = gistTextField.text,
             options = mapOf("domain" to domainTextField.text),
-            ranges = range
+            ranges = range,
+            encryptionPassword = String(encryptionPasswordTextField.password),
+            allowLegacyImport = legacyImportCheckBox.isSelected,
         )
     }
 
@@ -276,6 +291,17 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
      */
     @Suppress("DuplicatedCode")
     private suspend fun pushOrPull(push: Boolean): Boolean {
+
+        val encryptionPassword = String(encryptionPasswordTextField.password)
+        if (encryptionPassword.length < 12 || encryptionPassword.isBlank() || encryptionPassword == String(tokenTextField.password)) {
+            withContext(Dispatchers.Swing) {
+                encryptionPasswordTextField.outline = FlatClientProperties.OUTLINE_ERROR
+                encryptionPasswordTextField.requestFocusInWindow()
+                OptionPane.showMessageDialog(owner, SyncI18n.getString("termora.settings.sync.encryption-password-required"),
+                    messageType = JOptionPane.ERROR_MESSAGE)
+            }
+            return false
+        }
 
         if (typeComboBox.selectedItem == SyncType.GitLab) {
             if (domainTextField.text.isBlank()) {
@@ -308,6 +334,8 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
             typeComboBox.isEnabled = false
             gistTextField.isEnabled = false
             tokenTextField.isEnabled = false
+            encryptionPasswordTextField.isEnabled = false
+            legacyImportCheckBox.isEnabled = false
             keysCheckBox.isEnabled = false
             macrosCheckBox.isEnabled = false
             keymapCheckBox.isEnabled = false
@@ -341,6 +369,8 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
             keymapCheckBox.isEnabled = true
             gistTextField.isEnabled = true
             tokenTextField.isEnabled = true
+            encryptionPasswordTextField.isEnabled = true
+            legacyImportCheckBox.isEnabled = true
             domainTextField.isEnabled = true
             keywordHighlightsCheckBox.isEnabled = true
             syncConfigButton.text = SyncI18n.getString("termora.settings.sync")
@@ -366,6 +396,7 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
 
         } else {
             withContext(Dispatchers.Swing) {
+                if (push) legacyImportCheckBox.isSelected = false
                 val now = System.currentTimeMillis()
                 sync.lastSyncTime = now
                 val date = DateFormatUtils.format(Date(now), I18n.getString("termora.date-format"))
@@ -412,6 +443,8 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
         typeComboBox.selectedItem = sync.type
         gistTextField.text = sync.gist
         tokenTextField.text = sync.token
+        encryptionPasswordTextField.text = sync.encryptionPassword
+        encryptionPasswordTextField.toolTipText = SyncI18n.getString("termora.settings.sync.encryption-password-help")
         domainTextField.trailingComponent = JButton(Icons.externalLink).apply {
             addActionListener {
                 if (typeComboBox.selectedItem == SyncType.GitLab) {
@@ -501,7 +534,7 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
     private fun getCenterComponent(): JComponent {
         val layout = FormLayout(
             "left:pref, $formMargin, default:grow, 30dlu",
-            "pref, $formMargin, pref, $formMargin, pref, $formMargin, pref, $formMargin, pref, $formMargin, pref, $formMargin, pref"
+            List(9) { "pref" }.joinToString(", $formMargin, ")
         )
 
         val rangeBox = FormBuilder.create()
@@ -560,6 +593,9 @@ class CloudSyncOption : JPanel(BorderLayout()), OptionsPane.PluginOption {
             .add(if (isWebDAV) gistTextField else tokenTextField).xy(3, rows).apply { rows += step }
             .add("${gistText}:").xy(1, rows)
             .add(if (isWebDAV) tokenTextField else gistTextField).xy(3, rows).apply { rows += step }
+            .add("${SyncI18n.getString("termora.settings.sync.encryption-password")}:").xy(1, rows)
+            .add(encryptionPasswordTextField).xy(3, rows).apply { rows += step }
+            .add(legacyImportCheckBox).xy(3, rows).apply { rows += step }
             .add("${SyncI18n.getString("termora.settings.sync.policy")}:").xy(1, rows)
             .add(syncPolicyBox).xy(3, rows).apply { rows += step }
             .add("${SyncI18n.getString("termora.settings.sync.range")}:").xy(1, rows)

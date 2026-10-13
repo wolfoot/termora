@@ -5,6 +5,7 @@ import app.termora.account.Account
 import app.termora.account.AccountExtension
 import app.termora.account.AccountManager
 import app.termora.plugin.PluginDescriptor
+import app.termora.plugin.PluginFiles
 import app.termora.plugin.PluginManager
 import app.termora.plugin.PluginOrigin
 import app.termora.plugin.PluginXmlParser
@@ -14,11 +15,9 @@ import com.formdev.flatlaf.extras.components.FlatPopupMenu
 import com.formdev.flatlaf.extras.components.FlatTabbedPane
 import com.formdev.flatlaf.extras.components.FlatToolBar
 import org.apache.commons.io.FileUtils
-import org.apache.commons.io.IOUtils
 import java.awt.BorderLayout
 import java.io.File
 import java.util.jar.JarFile
-import java.util.zip.ZipInputStream
 import javax.swing.*
 
 class PluginOption : JPanel(BorderLayout()), OptionsPane.Option, Disposable, AccountExtension {
@@ -135,31 +134,36 @@ class PluginOption : JPanel(BorderLayout()), OptionsPane.Option, Disposable, Acc
     private fun installPluginFromDisk(file: File) {
         val dir = Application.createSubTemporaryDir("plugin").toFile()
 
-        file.inputStream().use { input ->
-            ZipInputStream(input).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (entry.isDirectory.not()) {
-                        val entryFile = File(dir, entry.name)
-                        FileUtils.forceMkdirParent(entryFile)
-                        entryFile.outputStream().use { os -> IOUtils.copy(zis, os) }
-                    }
-                    entry = zis.nextEntry
-                }
+        try {
+            file.inputStream().use { PluginFiles.extract(it, dir.toPath()) }
+        } catch (e: Exception) {
+            FileUtils.deleteQuietly(dir)
+            SwingUtilities.invokeLater {
+                OptionPane.showMessageDialog(owner, e.message ?: "Invalid plugin archive", messageType = JOptionPane.ERROR_MESSAGE)
             }
+            return
         }
 
         // 尝试读取插件内容
         for (item in FileUtils.listFiles(dir, arrayOf("jar"), true)) {
             try {
                 val pluginDescriptor = JarFile(item).use { parseJarFile(it) }
-                SwingUtilities.invokeLater { installPlugin(item.parentFile, pluginDescriptor) }
+                SwingUtilities.invokeLater {
+                    try {
+                        installPlugin(item.parentFile, pluginDescriptor)
+                    } catch (e: Exception) {
+                        OptionPane.showMessageDialog(owner, e.message ?: "Unable to install plugin", messageType = JOptionPane.ERROR_MESSAGE)
+                    } finally {
+                        FileUtils.deleteQuietly(dir)
+                    }
+                }
                 return
             } catch (_: Exception) {
                 continue
             }
         }
 
+        FileUtils.deleteQuietly(dir)
         SwingUtilities.invokeLater {
             OptionPane.showMessageDialog(
                 owner, I18n.getString("termora.settings.plugin.install-failed"),
@@ -179,11 +183,13 @@ class PluginOption : JPanel(BorderLayout()), OptionsPane.Option, Disposable, Acc
             ) != JOptionPane.OK_OPTION
         ) return
 
-        var pluginDirectory = FileUtils.getFile(PluginManager.getInstance().getPluginDirectory(), pluginDescriptor.id)
+        var pluginDirectory = PluginFiles.directory(
+            PluginManager.getInstance().getPluginDirectory().toPath(), pluginDescriptor.id
+        ).toFile()
 
         // 如果已经存在，那么变成更新插件
         if (pluginDirectory.exists() && pluginDirectory.isDirectory) {
-            pluginDirectory = FileUtils.getFile(pluginDirectory, "updated")
+            pluginDirectory = PluginFiles.directory(pluginDirectory.toPath(), "updated").toFile()
             if (pluginDirectory.exists()) {
                 FileUtils.deleteQuietly(pluginDirectory)
             }

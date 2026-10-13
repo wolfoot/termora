@@ -27,11 +27,15 @@ data class SyncConfig(
     val gistId: String,
     val options: Map<String, String>,
     val ranges: Set<SyncRange> = setOf(SyncRange.Hosts, SyncRange.KeyPairs, SyncRange.KeywordHighlights),
+    val encryptionPassword: String = "",
+    val allowLegacyImport: Boolean = false,
+    internal val legacyFormat: Boolean = false,
 )
 
 data class GistFile(
     val filename: String,
-    val content: String
+    val content: String,
+    internal val legacy: Boolean = false,
 )
 
 data class GistResponse(

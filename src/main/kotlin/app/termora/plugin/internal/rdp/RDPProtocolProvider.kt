@@ -4,11 +4,13 @@ import app.termora.*
 import app.termora.actions.DataProvider
 import app.termora.protocol.GenericProtocolProvider
 import com.formdev.flatlaf.util.SystemInfo
+import com.sun.jna.platform.win32.Crypt32Util
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
+import org.apache.commons.codec.binary.Hex
 import org.apache.commons.lang3.StringUtils
 import org.apache.commons.lang3.Strings
 import org.apache.commons.lang3.SystemUtils
@@ -97,11 +99,9 @@ internal class RDPProtocolProvider private constructor() : GenericProtocolProvid
             var ep = StringUtils.EMPTY
 
             if (SystemInfo.isWindows) {
-                val cmd = "ConvertTo-SecureString '${password}' -AsPlainText -Force | ConvertFrom-SecureString"
-                val process = ProcessBuilder("powershell.exe", "-NoProfile", "-Command", cmd).start()
-                if (process.waitFor() == 0) {
-                    ep = String(process.inputStream.readAllBytes())
-                }
+                ep = runCatching {
+                    Hex.encodeHexString(Crypt32Util.cryptProtectData(password.toByteArray(Charsets.UTF_16LE)))
+                }.getOrDefault(StringUtils.EMPTY)
             }
 
             if (ep.isNotBlank()) {

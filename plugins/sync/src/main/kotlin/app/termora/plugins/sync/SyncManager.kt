@@ -117,7 +117,8 @@ class SyncManager private constructor() : Disposable {
             token = sync.token,
             gistId = sync.gist,
             options = mapOf("domain" to sync.domain),
-            ranges = range
+            ranges = range,
+            encryptionPassword = sync.encryptionPassword,
         )
     }
 
