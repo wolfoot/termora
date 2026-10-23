@@ -1,0 +1,20 @@
+Termora Android 0.1.0
+
+The application and portable desktop terminal/model adaptations use the desktop project's AGPL-3.0 licensing option. Corresponding Android sources and build scripts are provided in the android directory alongside this APK's project.
+
+FreeRDP 3.32.2 native engine: Apache-2.0.
+Adapted LibFreeRDP.java and generated RdpListener.java: MPL-2.0. The original copyright header is preserved. scripts/prepare-rdp.py documents the modifications.
+OpenSSL 4.0.1: Apache-2.0.
+cJSON: MIT, copyright Dave Gamble and cJSON contributors.
+uriparser: BSD-3-Clause.
+
+Kotlin and kotlinx.serialization: Apache-2.0.
+Apache Commons Lang, Codec and Net: Apache-2.0.
+OkHttp / Okio: Apache-2.0.
+SMBJ / ASN.1 dependencies: Apache-2.0.
+SLF4J: MIT.
+Bouncy Castle: MIT-style Bouncy Castle License; https://www.bouncycastle.org/licence.html
+JSch (mwiede fork): BSD-style; complete notices in JSch.txt.
+AndroidX test libraries are used only by the separate test APK.
+
+Full AGPL-3.0, Apache-2.0, MPL-2.0, JSch, cJSON and uriparser texts are included in this directory.
